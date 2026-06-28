@@ -15,6 +15,8 @@ import { logAudit } from "../services/audit.service.js";
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 const GRACE_MS = getGracePeriod() * 1000;
 const deviationTimers = new Map();
+const consecutiveOnRoute = new Map();
+const ON_ROUTE_CONSECUTIVE_REQUIRED = 2;
 
 async function emitDashboardUpdate(io) {
   try {
@@ -36,6 +38,9 @@ async function getDriverName(vehicleId) {
 }
 
 async function startTimerForDeviation(io, socket, vehicleId, devId, devStart, lat, lng) {
+  const elapsed = devStart ? Date.now() - new Date(devStart).getTime() : 0;
+  const remainingMs = Math.max(0, GRACE_MS - elapsed);
+
   const timer = setTimeout(async () => {
     const stillOff = await getActiveDeviation(vehicleId);
     if (stillOff) {
@@ -57,9 +62,68 @@ async function startTimerForDeviation(io, socket, vehicleId, devId, devStart, la
       await emitDashboardUpdate(io);
     }
     deviationTimers.delete(vehicleId);
-  }, GRACE_MS);
+  }, remainingMs);
 
   deviationTimers.set(vehicleId, { timer, startTime: Date.now() });
+}
+
+export async function recoverDeviationTimers(io) {
+  try {
+    const { pool } = await import("../app.js");
+    const result = await pool.query(
+      `SELECT id, vehicle_id, deviation_start,
+              ST_X(geom) as lng, ST_Y(geom) as lat
+       FROM route_deviations
+       WHERE deviation_end IS NULL AND resolved = FALSE`
+    );
+
+    for (const dev of result.rows) {
+      const elapsed = Date.now() - new Date(dev.deviation_start).getTime();
+
+      if (elapsed >= GRACE_MS) {
+        try {
+          const incidentId = await generateIncident(dev.vehicle_id, dev.id, dev.lat, dev.lng, dev.deviation_start);
+          console.log(`[RECOVERY] Incidente generado para vehículo ${dev.vehicle_id} (desviación ${dev.id}) — tiempo excedido durante reinicio`);
+          io.to("admins").emit("incident_reported", {
+            vehicleId: dev.vehicle_id,
+            incidentId,
+            devId: dev.id,
+            timestamp: new Date().toISOString(),
+          });
+          await emitDashboardUpdate(io);
+        } catch (err) {
+          console.error(`[RECOVERY] Error generando incidente para vehículo ${dev.vehicle_id}:`, err.message);
+        }
+        deviationTimers.delete(dev.vehicle_id);
+      } else {
+        const remainingMs = GRACE_MS - elapsed;
+        const timer = setTimeout(async () => {
+          const stillOff = await getActiveDeviation(dev.vehicle_id);
+          if (stillOff) {
+            try {
+              const incidentId = await generateIncident(dev.vehicle_id, dev.id, dev.lat, dev.lng, dev.deviation_start);
+              console.log(`[RECOVERY] Incidente generado para vehículo ${dev.vehicle_id} (desviación ${dev.id}) — timer recuperado expiró`);
+              io.to("admins").emit("incident_reported", {
+                vehicleId: dev.vehicle_id,
+                incidentId,
+                devId: dev.id,
+                timestamp: new Date().toISOString(),
+              });
+              await emitDashboardUpdate(io);
+            } catch (err) {
+              console.error(`[RECOVERY] Error generando incidente para vehículo ${dev.vehicle_id}:`, err.message);
+            }
+          }
+          deviationTimers.delete(dev.vehicle_id);
+        }, remainingMs);
+
+        deviationTimers.set(dev.vehicle_id, { timer, startTime: Date.now() });
+        console.log(`[RECOVERY] Timer restaurado para vehículo ${dev.vehicle_id}: ${Math.round(remainingMs / 1000)}s restantes`);
+      }
+    }
+  } catch (err) {
+    console.error("[RECOVERY] Error recuperando desvíos activos:", err.message);
+  }
 }
 
 export function setupGpsSocket(io) {
@@ -102,11 +166,13 @@ export function setupGpsSocket(io) {
       try {
         await savePosition(vehicleId, lat, lng, speed);
 
-        const { isOnRoute, distance } = await checkRouteDistance(vehicleId, lat, lng);
+        const { distance, zone, isOnRoute } = await checkRouteDistance(vehicleId, lat, lng);
 
         await detectStop(vehicleId, speed, lat, lng);
 
-        if (!isOnRoute) {
+        if (zone === "off_route") {
+          consecutiveOnRoute.set(vehicleId, 0);
+
           const deviation = await getActiveDeviation(vehicleId);
 
           if (!deviation) {
@@ -146,19 +212,39 @@ export function setupGpsSocket(io) {
           }
 
           await saveTramaje(vehicleId, lat, lng, distance);
+        } else if (zone === "intermediate") {
+          consecutiveOnRoute.set(vehicleId, 0);
         } else {
           const existing = deviationTimers.get(vehicleId);
+
           if (existing) {
-            clearTimeout(existing.timer);
-            deviationTimers.delete(vehicleId);
+            const count = (consecutiveOnRoute.get(vehicleId) || 0) + 1;
+            consecutiveOnRoute.set(vehicleId, count);
 
-            const resolved = await resolveDeviation(vehicleId);
-            if (resolved) {
-              console.log(`[DEVIATION] Vehículo ${vehicleId} volvió a la ruta tras ${resolved.duration}s`);
+            if (count >= ON_ROUTE_CONSECUTIVE_REQUIRED) {
+              clearTimeout(existing.timer);
+              deviationTimers.delete(vehicleId);
+              consecutiveOnRoute.set(vehicleId, 0);
+
+              const resolved = await resolveDeviation(vehicleId);
+              if (resolved) {
+                console.log(`[DEVIATION] Vehículo ${vehicleId} volvió a la ruta tras ${resolved.duration}s`);
+              }
+
+              socket.emit("back_on_route", { message: "Has vuelto a la ruta autorizada" });
+              await emitDashboardUpdate(io);
             }
-
-            socket.emit("back_on_route", { message: "Has vuelto a la ruta autorizada" });
-            await emitDashboardUpdate(io);
+          } else {
+            const activeDeviation = await getActiveDeviation(vehicleId);
+            if (activeDeviation) {
+              const resolved = await resolveDeviation(vehicleId);
+              if (resolved) {
+                console.log(`[DEVIATION] Vehículo ${vehicleId} — desviación persistente resuelta (restart recovery, was ${resolved.duration}s)`);
+              }
+              socket.emit("back_on_route", { message: "Has vuelto a la ruta autorizada" });
+              await emitDashboardUpdate(io);
+            }
+            consecutiveOnRoute.set(vehicleId, 0);
           }
         }
 
@@ -248,6 +334,8 @@ export function setupGpsSocket(io) {
         clearTimeout(existing.timer);
         deviationTimers.delete(vehicleId);
       }
+
+      consecutiveOnRoute.delete(vehicleId);
 
       await resolveDeviation(vehicleId);
 

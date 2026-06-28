@@ -1,6 +1,7 @@
 import { pool } from "../app.js";
 
-const MAX_DISTANCE_FROM_ROUTE = 200;
+export const OFF_ROUTE_THRESHOLD = 200;
+export const ON_ROUTE_THRESHOLD = 120;
 
 export async function checkRouteDistance(vehicleId, lat, lng) {
   const result = await pool.query(
@@ -12,12 +13,20 @@ export async function checkRouteDistance(vehicleId, lat, lng) {
     [lng, lat]
   );
 
-  if (result.rows.length === 0) return { isOnRoute: true, distance: 0 };
+  if (result.rows.length === 0) return { isOnRoute: true, distance: 0, zone: "on_route" };
 
   const distance = result.rows[0].dist;
-  const isOnRoute = distance <= MAX_DISTANCE_FROM_ROUTE;
 
-  return { isOnRoute, distance };
+  let zone;
+  if (distance > OFF_ROUTE_THRESHOLD) {
+    zone = "off_route";
+  } else if (distance <= ON_ROUTE_THRESHOLD) {
+    zone = "on_route";
+  } else {
+    zone = "intermediate";
+  }
+
+  return { isOnRoute: distance <= OFF_ROUTE_THRESHOLD, distance, zone };
 }
 
 export async function saveTramaje(vehicleId, lat, lng, distance) {

@@ -17,7 +17,7 @@ import auditRoutes from "./routes/audit.routes.js";
 import sancionesRoutes from "./routes/sanciones.routes.js";
 import driverRoutes from "./routes/driver.routes.js";
 import { setSocketIO } from "./services/socket.service.js";
-import { setupGpsSocket } from "./sockets/gps.socket.js";
+import { setupGpsSocket, recoverDeviationTimers } from "./sockets/gps.socket.js";
 
 const { Pool } = pg;
 
@@ -198,6 +198,8 @@ app.get("/api/health", (req, res) => {
 
 setSocketIO(io);
 setupGpsSocket(io);
+
+runMigration().then(() => recoverDeviationTimers(io));
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {

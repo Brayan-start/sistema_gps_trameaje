@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss }) {
+export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, reporteGenerado = false }) {
   const [remaining, setRemaining] = useState(graceSeconds);
-  const [reported, setReported] = useState(false);
   const audioCtxRef = useRef(null);
   useEffect(() => {
     audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -10,19 +9,7 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
   useEffect(() => {
     if (!show) return;
     setRemaining(graceSeconds);
-    setReported(false);
   }, [show, graceSeconds]);
-  useEffect(() => {
-    if (!show) return;
-    if (remaining <= 0) {
-      setReported(true);
-      return;
-    }
-    const timer = setInterval(() => {
-      setRemaining((r) => Math.max(0, r - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [remaining, show]);
   useEffect(() => {
     if (!show) return;
     if (remaining <= 0 || remaining > graceSeconds - 1) return;
@@ -48,7 +35,7 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
   return (
     <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-black/60 animate-fade-in">
       <div className="card p-6 mx-4 max-w-sm w-full shadow-modal text-center animate-slide-up">
-        {reported ? (
+        {reporteGenerado ? (
           <>
             <div className="text-5xl mb-4">📋</div>
             <h2 className="text-lg font-bold text-warning mb-2">Reporte Generado</h2>
@@ -61,6 +48,14 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
             >
               Entendido
             </button>
+          </>
+        ) : remaining <= 0 ? (
+          <>
+            <div className="text-5xl mb-4 animate-pulse">⏳</div>
+            <h2 className="text-lg font-bold text-accent mb-2">Verificando...</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Esperando confirmación del servidor...
+            </p>
           </>
         ) : (
           <>
