@@ -140,7 +140,7 @@ router.put("/cambiar-contrasena", requireAuth, requireRole("admin"), async (req,
 
     const hash = await bcrypt.hash(nueva, 10);
     await pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
       [hash, req.user.id]
     );
 
@@ -189,7 +189,7 @@ router.put("/choferes/:id", requireAuth, requireRole("admin"), async (req, res) 
     }
 
     await pool.query(
-      `UPDATE users SET name = $1, email = $2, vehicle_id = $3, updated_at = NOW() WHERE id = $4`,
+      `UPDATE users SET name = $1, email = $2, vehicle_id = $3 WHERE id = $4`,
       [name.trim(), email.trim(), newVehicleId, id]
     );
 

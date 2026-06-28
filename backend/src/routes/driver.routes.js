@@ -73,7 +73,7 @@ router.put("/cambiar-contrasena", requireAuth, requireRole("driver"), async (req
 
     const hash = await bcrypt.hash(nueva, 10);
     await pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
       [hash, req.user.id]
     );
 

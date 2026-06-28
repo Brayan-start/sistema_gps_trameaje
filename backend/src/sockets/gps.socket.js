@@ -61,7 +61,7 @@ async function startTimerForDeviation(io, socket, vehicleId, devId, devStart, la
 
       await emitDashboardUpdate(io);
     }
-    deviationTimers.delete(vehicleId);
+    deviationTimers.set(vehicleId, { incidentGenerated: true });
   }, remainingMs);
 
   deviationTimers.set(vehicleId, { timer, startTime: Date.now() });
@@ -94,7 +94,7 @@ export async function recoverDeviationTimers(io) {
         } catch (err) {
           console.error(`[RECOVERY] Error generando incidente para vehículo ${dev.vehicle_id}:`, err.message);
         }
-        deviationTimers.delete(dev.vehicle_id);
+        deviationTimers.set(dev.vehicle_id, { incidentGenerated: true });
       } else {
         const remainingMs = GRACE_MS - elapsed;
         const timer = setTimeout(async () => {
@@ -114,7 +114,7 @@ export async function recoverDeviationTimers(io) {
               console.error(`[RECOVERY] Error generando incidente para vehículo ${dev.vehicle_id}:`, err.message);
             }
           }
-          deviationTimers.delete(dev.vehicle_id);
+          deviationTimers.set(dev.vehicle_id, { incidentGenerated: true });
         }, remainingMs);
 
         deviationTimers.set(dev.vehicle_id, { timer, startTime: Date.now() });
@@ -173,45 +173,48 @@ export function setupGpsSocket(io) {
         if (zone === "off_route") {
           consecutiveOnRoute.set(vehicleId, 0);
 
-          const deviation = await getActiveDeviation(vehicleId);
+          const devState = deviationTimers.get(vehicleId);
+          if (!devState?.incidentGenerated) {
+            const deviation = await getActiveDeviation(vehicleId);
 
-          if (!deviation) {
-            const devId = await startDeviation(vehicleId, lat, lng, distance);
-            await startTimerForDeviation(io, socket, vehicleId, devId, new Date().toISOString(), lat, lng);
+            if (!deviation) {
+              const devId = await startDeviation(vehicleId, lat, lng, distance);
+              await startTimerForDeviation(io, socket, vehicleId, devId, new Date().toISOString(), lat, lng);
 
-            socket.emit("you_are_off_route", {
-              message: "Usted está fuera de su ruta, por favor ingrese a su ruta",
-              distance: Math.round(distance),
-              graceSeconds: getGracePeriod(),
-              deviationId: devId,
-            });
+              socket.emit("you_are_off_route", {
+                message: "Usted está fuera de su ruta, por favor ingrese a su ruta",
+                distance: Math.round(distance),
+                graceSeconds: getGracePeriod(),
+                deviationId: devId,
+              });
 
-            io.to("admins").emit("tramaje_alert", {
-              vehicleId,
-              lat,
-              lng,
-              distance: Math.round(distance),
-              timestamp: new Date().toISOString(),
-            });
+              io.to("admins").emit("tramaje_alert", {
+                vehicleId,
+                lat,
+                lng,
+                distance: Math.round(distance),
+                timestamp: new Date().toISOString(),
+              });
 
-            await emitDashboardUpdate(io);
-          } else {
-            const elapsed = Math.floor((Date.now() - new Date(deviation.deviation_start)) / 1000);
-            const remaining = Math.max(0, getGracePeriod() - elapsed);
+              await emitDashboardUpdate(io);
+            } else {
+              const elapsed = Math.floor((Date.now() - new Date(deviation.deviation_start)) / 1000);
+              const remaining = Math.max(0, getGracePeriod() - elapsed);
 
-            if (!deviationTimers.has(vehicleId)) {
-              await startTimerForDeviation(io, socket, vehicleId, deviation.id, deviation.deviation_start, lat, lng);
+              if (!deviationTimers.has(vehicleId)) {
+                await startTimerForDeviation(io, socket, vehicleId, deviation.id, deviation.deviation_start, lat, lng);
+              }
+
+              socket.emit("you_are_off_route", {
+                message: "Usted está fuera de su ruta, por favor ingrese a su ruta",
+                distance: Math.round(distance),
+                graceSeconds: remaining,
+                deviationId: deviation.id,
+              });
             }
 
-            socket.emit("you_are_off_route", {
-              message: "Usted está fuera de su ruta, por favor ingrese a su ruta",
-              distance: Math.round(distance),
-              graceSeconds: remaining,
-              deviationId: deviation.id,
-            });
+            await saveTramaje(vehicleId, lat, lng, distance);
           }
-
-          await saveTramaje(vehicleId, lat, lng, distance);
         } else if (zone === "intermediate") {
           consecutiveOnRoute.set(vehicleId, 0);
         } else {
@@ -355,7 +358,54 @@ export function setupGpsSocket(io) {
       await closeStop(vehicleId);
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
+      const userId = socket.user?.id;
+      const vehicleId = socket.user?.vehicle_id;
+
+      if (socket.user?.role === "driver" && vehicleId) {
+        try {
+          const { pool } = await import("../app.js");
+          const statusRes = await pool.query(
+            `SELECT status FROM vehicles WHERE id = $1`,
+            [vehicleId]
+          );
+
+          if (statusRes.rows.length > 0 && statusRes.rows[0].status === "on_route") {
+            const existing = deviationTimers.get(vehicleId);
+            if (existing) {
+              clearTimeout(existing.timer);
+              deviationTimers.delete(vehicleId);
+            }
+            consecutiveOnRoute.delete(vehicleId);
+
+            await resolveDeviation(vehicleId);
+
+            await pool.query(
+              `UPDATE vehicles SET status = 'inactive' WHERE id = $1`,
+              [vehicleId]
+            );
+
+            await logAudit({
+              user_id: userId,
+              usuario_nombre: socket.user.name,
+              accion: "FIN_RUTA",
+              detalle: `Vehículo #${vehicleId} — ruta finalizada automáticamente por desconexión`,
+              tipo: "ruta",
+            });
+
+            io.to("admins").emit("vehicle_status_change", { vehicleId, status: "inactive" });
+            await emitDashboardUpdate(io);
+
+            const { closeStop } = await import("../services/stops.service.js");
+            await closeStop(vehicleId);
+
+            console.log(`[SOCKET] Ruta auto-finalizada para vehículo ${vehicleId} (${socket.user.name}) por desconexión`);
+          }
+        } catch (err) {
+          console.error(`[SOCKET] Error auto-finalizando ruta para vehículo ${vehicleId}:`, err.message);
+        }
+      }
+
       console.log(`[SOCKET] Desconectado: ${socket.user?.name || socket.id}`);
     });
   });

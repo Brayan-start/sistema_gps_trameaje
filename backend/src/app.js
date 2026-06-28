@@ -165,8 +165,6 @@ async function runMigration() {
 const app = express();
 const httpServer = createServer(app);
 
-runMigration();
-
 const corsOrigin = process.env.CORS_ORIGIN || "*";
 
 const io = new Server(httpServer, {
