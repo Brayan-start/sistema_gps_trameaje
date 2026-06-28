@@ -13,6 +13,7 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
     setReported(false);
   }, [show, graceSeconds]);
   useEffect(() => {
+    if (!show) return;
     if (remaining <= 0) {
       setReported(true);
       return;
@@ -21,8 +22,9 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
       setRemaining((r) => Math.max(0, r - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [remaining]);
+  }, [remaining, show]);
   useEffect(() => {
+    if (!show) return;
     if (remaining <= 0 || remaining > graceSeconds - 1) return;
     const ctx = audioCtxRef.current;
     if (!ctx) return;
@@ -35,7 +37,7 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss })
     gain.gain.value = 0.15;
     osc.start();
     osc.stop(ctx.currentTime + 0.15);
-  }, [remaining, graceSeconds]);
+  }, [remaining, graceSeconds, show]);
   const formatTime = (sec) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
