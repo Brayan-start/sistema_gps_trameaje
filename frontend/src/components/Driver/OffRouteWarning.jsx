@@ -1,7 +1,20 @@
 import { useState, useEffect, useRef } from "react";
+function playBeep(ctx) {
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.frequency.value = 880;
+  osc.type = "sine";
+  gain.gain.value = 0.15;
+  osc.start();
+  osc.stop(ctx.currentTime + 0.15);
+}
 export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, reporteGenerado = false }) {
   const [remaining, setRemaining] = useState(graceSeconds);
   const audioCtxRef = useRef(null);
+  const prevReporte = useRef(false);
   useEffect(() => {
     audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
     return () => audioCtxRef.current?.close();
@@ -13,18 +26,34 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, r
   useEffect(() => {
     if (!show) return;
     if (remaining <= 0 || remaining > graceSeconds - 1) return;
+    playBeep(audioCtxRef.current);
+  }, [remaining, graceSeconds, show]);
+  useEffect(() => {
+    if (!show) return;
+    if (remaining > 0 || reporteGenerado) return;
+    const interval = setInterval(() => playBeep(audioCtxRef.current), 2000);
+    return () => clearInterval(interval);
+  }, [show, remaining, reporteGenerado]);
+  useEffect(() => {
+    if (!show || !reporteGenerado || prevReporte.current) {
+      prevReporte.current = reporteGenerado;
+      return;
+    }
+    prevReporte.current = true;
     const ctx = audioCtxRef.current;
     if (!ctx) return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = "sine";
-    gain.gain.value = 0.15;
-    osc.start();
-    osc.stop(ctx.currentTime + 0.15);
-  }, [remaining, graceSeconds, show]);
+    for (let i = 0; i < 3; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = "sine";
+      gain.gain.value = 0.15;
+      osc.start(ctx.currentTime + i * 0.2);
+      osc.stop(ctx.currentTime + i * 0.2 + 0.15);
+    }
+  }, [reporteGenerado, show]);
   const formatTime = (sec) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
