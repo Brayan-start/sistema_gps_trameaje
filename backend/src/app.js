@@ -52,68 +52,102 @@ export async function getDashboardStats() {
   };
 }
 
+const MIGRATION_STEPS = [
+  `SET search_path TO public`,
+
+  `CREATE EXTENSION IF NOT EXISTS postgis`,
+
+  `CREATE TABLE IF NOT EXISTS route_deviations (
+    id SERIAL PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    geom GEOMETRY(POINT, 4326) NOT NULL,
+    deviation_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deviation_end TIMESTAMPTZ,
+    max_distance_m FLOAT,
+    resolved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_route_deviations_vehicle
+   ON route_deviations(vehicle_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_route_deviations_active
+   ON route_deviations(vehicle_id) WHERE deviation_end IS NULL`,
+
+  `CREATE TABLE IF NOT EXISTS incidentes (
+    id SERIAL PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    deviation_id INTEGER REFERENCES route_deviations(id) ON DELETE SET NULL,
+    geom GEOMETRY(POINT, 4326) NOT NULL,
+    inicio TIMESTAMPTZ NOT NULL,
+    fin TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    duracion_segundos INTEGER NOT NULL,
+    tipo VARCHAR(50) DEFAULT 'off_route',
+    descripcion TEXT,
+    resuelto BOOLEAN DEFAULT FALSE,
+    resuelto_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    resuelto_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_incidentes_vehicle
+   ON incidentes(vehicle_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_incidentes_tipo
+   ON incidentes(tipo)`,
+
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    usuario_nombre VARCHAR(150),
+    accion VARCHAR(100) NOT NULL,
+    detalle TEXT,
+    tipo VARCHAR(50) DEFAULT 'general',
+    ip_address VARCHAR(45),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_audit_log_tipo
+   ON audit_log(tipo)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_audit_log_created
+   ON audit_log(created_at DESC)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_audit_log_user
+   ON audit_log(user_id)`,
+
+  `CREATE TABLE IF NOT EXISTS sanciones (
+    id SERIAL PRIMARY KEY,
+    incidente_id INTEGER NOT NULL REFERENCES incidentes(id) ON DELETE CASCADE,
+    chofer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    tipo_sancion VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    aplicada_por INTEGER NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+    fecha_aplicacion TIMESTAMPTZ DEFAULT NOW()
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sanciones_incidente
+   ON sanciones(incidente_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sanciones_chofer
+   ON sanciones(chofer_id)`,
+];
+
 async function runMigration() {
+  for (const sql of MIGRATION_STEPS) {
+    try {
+      await pool.query(sql);
+    } catch (err) {
+      console.error("[MIGRATION] Error ejecutando migración en el siguiente SQL:");
+      console.error(sql);
+      console.error(err.stack || err.message);
+      return;
+    }
+  }
+
+  console.log("[MIGRATION] Tablas verificadas/creadas correctamente");
+
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS route_deviations (
-        id SERIAL PRIMARY KEY,
-        vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-        geom GEOMETRY(POINT, 4326) NOT NULL,
-        deviation_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        deviation_end TIMESTAMPTZ,
-        max_distance_m FLOAT,
-        resolved BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_route_deviations_vehicle ON route_deviations(vehicle_id);
-      CREATE INDEX IF NOT EXISTS idx_route_deviations_active ON route_deviations(vehicle_id) WHERE deviation_end IS NULL;
-
-      CREATE TABLE IF NOT EXISTS incidentes (
-        id SERIAL PRIMARY KEY,
-        vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-        deviation_id INTEGER REFERENCES route_deviations(id) ON DELETE SET NULL,
-        geom GEOMETRY(POINT, 4326) NOT NULL,
-        inicio TIMESTAMPTZ NOT NULL,
-        fin TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        duracion_segundos INTEGER NOT NULL,
-        tipo VARCHAR(50) DEFAULT 'off_route',
-        descripcion TEXT,
-        resuelto BOOLEAN DEFAULT FALSE,
-        resuelto_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        resuelto_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_incidentes_vehicle ON incidentes(vehicle_id);
-      CREATE INDEX IF NOT EXISTS idx_incidentes_tipo ON incidentes(tipo);
-
-      CREATE TABLE IF NOT EXISTS audit_log (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        usuario_nombre VARCHAR(150),
-        accion VARCHAR(100) NOT NULL,
-        detalle TEXT,
-        tipo VARCHAR(50) DEFAULT 'general',
-        ip_address VARCHAR(45),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_audit_log_tipo ON audit_log(tipo);
-      CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
-
-      CREATE TABLE IF NOT EXISTS sanciones (
-        id SERIAL PRIMARY KEY,
-        incidente_id INTEGER NOT NULL REFERENCES incidentes(id) ON DELETE CASCADE,
-        chofer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        tipo_sancion VARCHAR(100) NOT NULL,
-        descripcion TEXT,
-        aplicada_por INTEGER NOT NULL REFERENCES users(id) ON DELETE SET NULL,
-        fecha_aplicacion TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_sanciones_incidente ON sanciones(incidente_id);
-      CREATE INDEX IF NOT EXISTS idx_sanciones_chofer ON sanciones(chofer_id);
-    `);
-    console.log("[MIGRATION] Tablas verificadas/creadas correctamente");
-
     const cleanup = await pool.query(
       `UPDATE route_deviations SET resolved = TRUE, deviation_end = NOW()
        WHERE resolved = FALSE AND vehicle_id NOT IN (
@@ -124,7 +158,7 @@ async function runMigration() {
       console.log(`[CLEANUP] ${cleanup.rowCount} desvíos huérfanos resueltos automáticamente`);
     }
   } catch (err) {
-    console.error("[MIGRATION] Error ejecutando migración:", err.message);
+    console.error("[CLEANUP] Error resolviendo desvíos huérfanos:", err.stack || err.message);
   }
 }
 
