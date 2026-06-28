@@ -26,7 +26,8 @@ services:
         value: "10000"
     healthCheckPath: /health
 
-  - type: static
+  - type: web
+    runtime: static
     name: san-roque-frontend
     region: oregon
     plan: free
