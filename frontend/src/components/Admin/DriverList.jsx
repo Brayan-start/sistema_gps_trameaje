@@ -48,6 +48,7 @@ export default function DriverList() {
   const [loading, setLoading] = useState(true);
   const [editDriver, setEditDriver] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showEliminados, setShowEliminados] = useState(false);
   const token = useAuthStore((s) => s.token);
 
   const loadDrivers = () => {
@@ -85,8 +86,8 @@ export default function DriverList() {
       console.error("[DELETE ERROR]", err);
     } finally {
       setDeleteTarget(null);
-      loadDrivers();
     }
+    setDrivers((prev) => prev.filter((d) => d.id !== id));
   };
 
   if (loading) {
@@ -97,15 +98,31 @@ export default function DriverList() {
     );
   }
 
+  const visibleDrivers = showEliminados ? drivers : drivers.filter((d) => d.is_active);
+  const activeCount = drivers.filter((d) => d.is_active).length;
+  const inactiveCount = drivers.length - activeCount;
+
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-white">Choferes Registrados</h1>
-        <p className="text-sm text-gray-500 mt-1">{drivers.length} chofer(es) en el sistema</p>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-white">Choferes Registrados</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {activeCount} activo(s)
+            {inactiveCount > 0 && (
+              <button
+                onClick={() => setShowEliminados(!showEliminados)}
+                className="ml-2 text-xs text-accent hover:underline"
+              >
+                {showEliminados ? "Ocultar eliminados" : `${inactiveCount} eliminado(s) — Mostrar`}
+              </button>
+            )}
+          </p>
+        </div>
       </div>
 
       <div className="space-y-2">
-        {drivers.map((d) => (
+        {visibleDrivers.map((d) => (
           <div
             key={d.id}
             className={`card p-4 flex items-center justify-between ${!d.is_active ? "opacity-50" : ""}`}
@@ -130,35 +147,37 @@ export default function DriverList() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setEditDriver(d)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition"
-              >
-                Editar
-              </button>
+              {d.is_active && (
+                <button
+                  onClick={() => setEditDriver(d)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition"
+                >
+                  Editar
+                </button>
+              )}
               <span className={`badge ${d.is_active ? "badge-green" : "badge-gray"}`}>
-                {d.is_active ? "Activo" : "Inactivo"}
+                {d.is_active ? "Activo" : "Eliminado"}
               </span>
-              <button
-                onClick={() => setDeleteTarget(d)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-alert/10 text-alert hover:bg-alert/20 transition"
-              >
-                Eliminar
-              </button>
-              <button
-                onClick={() => handleToggle(d.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                  d.is_active
-                    ? "bg-alert/20 text-alert hover:bg-alert/30"
-                    : "bg-success/20 text-success hover:bg-success/30"
-                }`}
-              >
-                {d.is_active ? "Desactivar" : "Activar"}
-              </button>
+              {d.is_active && (
+                <button
+                  onClick={() => setDeleteTarget(d)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-alert/10 text-alert hover:bg-alert/20 transition"
+                >
+                  Eliminar
+                </button>
+              )}
+              {!d.is_active && (
+                <button
+                  onClick={() => handleToggle(d.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-success/20 text-success hover:bg-success/30 transition"
+                >
+                  Restaurar
+                </button>
+              )}
             </div>
           </div>
         ))}
-        {drivers.length === 0 && (
+        {visibleDrivers.length === 0 && (
           <div className="text-center text-gray-500 py-12">No hay choferes registrados</div>
         )}
       </div>
