@@ -5,12 +5,13 @@ import { useAuthStore } from "../store/authStore";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
 
 let globalSocket = null;
-let globalListeners = [];
 
 export function useSocket(options = {}) {
   const { onPosition, onTramaje, onSpeedAlert, onOffRoute, onRouteStatus, onVehicleStatus, onIncident, onBackOnRoute, onReporteGenerado, onDashboardUpdate, onSancionAplicada } = options;
   const socketRef = useRef(globalSocket);
   const [connected, setConnected] = useState(false);
+  const callbacksRef = useRef(options);
+  callbacksRef.current = options;
 
   useEffect(() => {
     const token = useAuthStore.getState().token;
@@ -41,30 +42,28 @@ export function useSocket(options = {}) {
 
     socketRef.current = globalSocket;
 
-    if (onPosition) globalSocket.on("vehicle_position", onPosition);
-    if (onTramaje) globalSocket.on("tramaje_alert", onTramaje);
-    if (onSpeedAlert) globalSocket.on("speed_alert", onSpeedAlert);
-    if (onOffRoute) globalSocket.on("you_are_off_route", onOffRoute);
-    if (onRouteStatus) globalSocket.on("route_status", onRouteStatus);
-    if (onVehicleStatus) globalSocket.on("vehicle_status_change", onVehicleStatus);
-    if (onIncident) globalSocket.on("incident_reported", onIncident);
-    if (onBackOnRoute) globalSocket.on("back_on_route", onBackOnRoute);
-    if (onReporteGenerado) globalSocket.on("reporte_generado", onReporteGenerado);
-    if (onDashboardUpdate) globalSocket.on("dashboard_update", onDashboardUpdate);
-    if (onSancionAplicada) globalSocket.on("sancion_aplicada", onSancionAplicada);
+    const handlers = {
+      vehicle_position: (data) => callbacksRef.current.onPosition?.(data),
+      tramaje_alert: (data) => callbacksRef.current.onTramaje?.(data),
+      speed_alert: (data) => callbacksRef.current.onSpeedAlert?.(data),
+      you_are_off_route: (data) => callbacksRef.current.onOffRoute?.(data),
+      route_status: (data) => callbacksRef.current.onRouteStatus?.(data),
+      vehicle_status_change: (data) => callbacksRef.current.onVehicleStatus?.(data),
+      incident_reported: (data) => callbacksRef.current.onIncident?.(data),
+      back_on_route: (data) => callbacksRef.current.onBackOnRoute?.(data),
+      reporte_generado: (data) => callbacksRef.current.onReporteGenerado?.(data),
+      dashboard_update: (data) => callbacksRef.current.onDashboardUpdate?.(data),
+      sancion_aplicada: (data) => callbacksRef.current.onSancionAplicada?.(data),
+    };
+
+    Object.entries(handlers).forEach(([event, handler]) => {
+      globalSocket.on(event, handler);
+    });
 
     return () => {
-      if (onPosition) globalSocket.off("vehicle_position", onPosition);
-      if (onTramaje) globalSocket.off("tramaje_alert", onTramaje);
-      if (onSpeedAlert) globalSocket.off("speed_alert", onSpeedAlert);
-      if (onOffRoute) globalSocket.off("you_are_off_route", onOffRoute);
-      if (onRouteStatus) globalSocket.off("route_status", onRouteStatus);
-      if (onVehicleStatus) globalSocket.off("vehicle_status_change", onVehicleStatus);
-      if (onIncident) globalSocket.off("incident_reported", onIncident);
-      if (onBackOnRoute) globalSocket.off("back_on_route", onBackOnRoute);
-      if (onReporteGenerado) globalSocket.off("reporte_generado", onReporteGenerado);
-      if (onDashboardUpdate) globalSocket.off("dashboard_update", onDashboardUpdate);
-      if (onSancionAplicada) globalSocket.off("sancion_aplicada", onSancionAplicada);
+      Object.entries(handlers).forEach(([event, handler]) => {
+        globalSocket.off(event, handler);
+      });
     };
   }, []);
 
