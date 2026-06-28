@@ -3,7 +3,7 @@ databases:
     databaseName: san_roque_gps
     plan: free
     region: oregon
-    postgresMajorVersion: 16
+    postgresMajorVersion: "16"
 
 services:
   - type: web
@@ -29,8 +29,6 @@ services:
   - type: web
     runtime: static
     name: san-roque-frontend
-    region: oregon
-    plan: free
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     envVars:
