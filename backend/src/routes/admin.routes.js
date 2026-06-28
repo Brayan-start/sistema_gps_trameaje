@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { pool, getDashboardStats } from "../app.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireRole } from "../middleware/requireRole.js";
+import { logAudit } from "../services/audit.service.js";
 
 const router = Router();
 
@@ -212,6 +213,48 @@ router.put("/choferes/:id", requireAuth, requireRole("admin"), async (req, res) 
   } catch (err) {
     console.error("[EDITAR CHOFER ERROR]", err);
     res.status(500).json({ error: "Error al editar chofer" });
+  }
+});
+
+router.delete("/drivers/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await pool.query(
+      `SELECT id, vehicle_id, name FROM users WHERE id = $1 AND role = 'driver'`,
+      [id]
+    );
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: "Chofer no encontrado" });
+    }
+
+    const driver = user.rows[0];
+
+    if (driver.vehicle_id) {
+      await pool.query(
+        `UPDATE vehicles SET driver_id = NULL WHERE id = $1`,
+        [driver.vehicle_id]
+      );
+    }
+
+    await pool.query(
+      `UPDATE users SET is_active = FALSE, vehicle_id = NULL WHERE id = $1`,
+      [id]
+    );
+
+    logAudit({
+      user_id: req.user.id,
+      usuario_nombre: req.user.name,
+      accion: "ELIMINAR_CHOFER",
+      detalle: `Chofer "${driver.name}" (id:${id}) eliminado del sistema`,
+      tipo: "admin",
+      ip_address: req.ip,
+    });
+
+    res.json({ message: "Chofer eliminado correctamente" });
+  } catch (err) {
+    console.error("[DELETE DRIVER ERROR]", err);
+    res.status(500).json({ error: "Error al eliminar chofer" });
   }
 });
 
