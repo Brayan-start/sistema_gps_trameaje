@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #0b1121;
+  color: #f1f5f9;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  background: #0b1121;
+}
+
+.leaflet-control-zoom { display: none; }
+
+.leaflet-popup-content-wrapper {
+  background: #111827 !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+
+.leaflet-popup-tip {
+  background: #111827 !important;
+  border: 1px solid #1e293b !important;
+}
+
+.leaflet-popup-close-button {
+  color: #64748b !important;
+  font-size: 18px !important;
+  top: 8px !important;
+  right: 8px !important;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+@layer components {
+  .card {
+    @apply bg-dark-card rounded-2xl border border-dark-border shadow-card;
+  }
+
+  .card-hover {
+    @apply card hover:shadow-card-hover hover:border-gray-600 transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2.5 rounded-xl bg-accent text-[#0b1121] font-semibold text-sm
+           hover:bg-accent-400 active:scale-[0.98] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2.5 rounded-xl bg-alert text-white font-semibold text-sm
+           hover:bg-alert-dark active:scale-[0.98] transition-all duration-150;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2.5 rounded-xl text-gray-400 font-medium text-sm
+           hover:bg-dark-hover hover:text-white transition-all duration-150;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-xl bg-dark-card border border-dark-border
+           text-white placeholder-gray-500 text-sm
+           focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none
+           transition-all duration-150;
+  }
+
+  .select-field {
+    @apply input-field appearance-none cursor-pointer;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-success/20 text-success-light;
+  }
+
+  .badge-red {
+    @apply badge bg-alert/20 text-alert-light;
+  }
+
+  .badge-yellow {
+    @apply badge bg-warning/20 text-warning-light;
+  }
+
+  .badge-gray {
+    @apply badge bg-gray-700/50 text-gray-400;
+  }
+
+  .stat-card {
+    @apply card p-4 flex flex-col gap-1;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold font-mono;
+  }
+
+  .stat-label {
+    @apply text-xs text-gray-500 font-medium uppercase tracking-wider;
+  }
+
+  .timeline-item {
+    @apply relative pl-6 pb-4 border-l-2 border-dark-border last:pb-0;
+  }
+
+  .timeline-dot {
+    @apply absolute -left-[5px] top-1 w-2.5 h-2.5 rounded-full border-2;
+  }
+}

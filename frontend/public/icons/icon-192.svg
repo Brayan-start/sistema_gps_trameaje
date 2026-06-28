@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="32" fill="#0f172a"/>
+  <circle cx="96" cy="80" r="24" fill="#22d3ee"/>
+  <rect x="72" y="104" width="48" height="60" rx="6" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+  <circle cx="84" cy="120" r="4" fill="#ef4444"/>
+  <circle cx="108" cy="120" r="4" fill="#ef4444"/>
+  <rect x="80" y="140" width="32" height="24" rx="4" fill="#22d3ee" opacity="0.3"/>
+  <text x="96" y="180" text-anchor="middle" fill="#22d3ee" font-size="10" font-family="sans-serif">SAN ROQUE</text>
+</svg>

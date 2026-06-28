@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: sanroque-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sanroque_tracking
+      POSTGRES_USER: sanroque
+      POSTGRES_PASSWORD: sanroque_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sanroque -d sanroque_tracking"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: sanroque-backend
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: sanroque_tracking
+      DB_USER: sanroque
+      DB_PASSWORD: sanroque_secret
+      JWT_SECRET: sanroque_jwt_secret_change_in_prod_2026
+      PORT: 3000
+      CORS_ORIGIN: "*"
+      OFF_ROUTE_GRACE_SECONDS: "120"
+      OFFLINE_SYNC_INTERVAL: "30"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build: ./frontend
+    container_name: sanroque-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    environment:
+      VITE_API_URL: http://localhost:3000/api
+      VITE_SOCKET_URL: http://localhost:3000
+
+volumes:
+  postgis_data:
