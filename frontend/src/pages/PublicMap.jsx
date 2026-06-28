@@ -1,1 +1,181 @@
-import { useState, useEffect } from "react";import PublicMapView from "../components/Public/PublicMap";import NextBusEstimate from "../components/Public/NextBusEstimate";const API = import.meta.env.VITE_API_URL || "";export default function PublicMap() {  const [vehicles, setVehicles] = useState([]);  const [route, setRoute] = useState(null);  const [selectedVehicle, setSelectedVehicle] = useState(null);  const [loading, setLoading] = useState(true);  useEffect(() => {    async function loadData() {      try {        const [posRes, routeRes] = await Promise.all([          fetch(`${API}/public/positions`),          fetch(`${API}/public/route`),        ]);        const positions = await posRes.json();        const routeData = await routeRes.json();        setVehicles(positions);        setRoute(routeData);      } catch (err) {        console.error("Error cargando datos públicos:", err);      } finally {        setLoading(false);      }    }    loadData();    const interval = setInterval(loadData, 10000);    return () => clearInterval(interval);  }, []);  return (    <div className="h-screen w-screen flex flex-col bg-[#0f172a]">      <header className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-4 py-2 bg-gradient-to-b from-black/80 to-transparent">        <div>          <h1 className="text-sm font-bold text-accent">San Roque Tracking</h1>          <p className="text-xs text-gray-400">Ruta San Roque → Ceja</p>        </div>        <a          href="/login"          className="text-xs text-accent hover:underline"        >          Conductores        </a>      </header>      <main className="flex-1 relative">        {loading ? (          <div className="h-full flex items-center justify-center">            <div className="text-gray-400">Cargando mapa...</div>          </div>        ) : (          <>            <PublicMapView              vehicles={vehicles}              route={route}              onSelectVehicle={setSelectedVehicle}            />            <div className="absolute bottom-0 left-0 right-0 z-[1000] bg-[#1e293b] rounded-t-2xl max-h-48 overflow-y-auto border-t border-gray-700">              {selectedVehicle && (                <div className="p-4 border-b border-gray-700 bg-[#0f172a]">                  <div className="flex items-center justify-between">                    <div>                      <p className="font-semibold text-sm">{selectedVehicle.plate}</p>                      <p className="text-xs text-gray-400 font-mono">                        {selectedVehicle.speed_kmh?.toFixed(1)} km/h                      </p>                    </div>                    <button                      onClick={() => setSelectedVehicle(null)}                      className="text-gray-500 text-xl"                    >                      ×                    </button>                  </div>                  <p className="text-xs text-gray-500 mt-1">                    Última actualización: {new Date(selectedVehicle.timestamp).toLocaleTimeString("es-BO")}                  </p>                </div>              )}              <div className="p-3">                <p className="text-xs text-gray-400 mb-2">                  {vehicles.length > 0                    ? `🚌 ${vehicles.length} minibús(es) en ruta`                    : "⏳ No hay minibuses activos ahora"}                </p>                {vehicles.length > 0 && (                  <NextBusEstimate vehicles={vehicles} route={route} />                )}              </div>              {vehicles.map((v) => (                <button                  key={v.id}                  onClick={() => setSelectedVehicle(v)}                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#0f172a] transition border-b border-gray-800 last:border-0"                >                  <span className="text-lg">🚐</span>                  <div className="flex-1 text-left">                    <span className="text-sm font-medium">{v.plate}</span>                    <span className="text-xs text-gray-400 ml-2">                      {v.speed_kmh?.toFixed(0)} km/h                    </span>                  </div>                  <span                    className={`text-xs px-2 py-0.5 rounded-full ${                      v.is_on_route                        ? "bg-green-500/20 text-green-400"                        : "bg-alert/20 text-alert"                    }`}                  >                    {v.is_on_route ? "En ruta" : "Desviado"}                  </span>                </button>              ))}            </div>          </>        )}      </main>    </div>  );}
+import { useState, useEffect, useRef } from "react";
+import { io } from "socket.io-client";
+import PublicMapView from "../components/Public/PublicMap";
+import NextBusEstimate from "../components/Public/NextBusEstimate";
+
+const API = import.meta.env.VITE_API_URL || "";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
+
+function mergeVehicles(current, incoming) {
+  const idx = current.findIndex(
+    (v) => v.id === incoming.id || v.id === incoming.vehicleId
+  );
+  if (idx >= 0) {
+    const updated = [...current];
+    updated[idx] = { ...updated[idx], ...incoming };
+    return updated;
+  }
+  return [...current, incoming];
+}
+
+function normalizeSocketData(data) {
+  return {
+    id: data.vehicleId,
+    lat: data.lat,
+    lng: data.lng,
+    is_on_route: data.isOnRoute,
+    plate: data.plate,
+    driver_name: data.driver_name || data.driverName,
+    speed_kmh: data.speed,
+    timestamp: data.timestamp || new Date().toISOString(),
+  };
+}
+
+export default function PublicMap() {
+  const [vehicles, setVehicles] = useState([]);
+  const [route, setRoute] = useState(null);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [posRes, routeRes] = await Promise.all([
+          fetch(`${API}/public/positions`),
+          fetch(`${API}/public/route`),
+        ]);
+        const positions = await posRes.json();
+        const routeData = await routeRes.json();
+        setVehicles(positions);
+        setRoute(routeData);
+      } catch (err) {
+        console.error("Error cargando datos públicos:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("connect", () => {
+      console.log("[PUBLIC SOCKET] Conectado:", socket.id);
+    });
+
+    socket.on("vehicle_position", (data) => {
+      setVehicles((prev) => mergeVehicles(prev, normalizeSocketData(data)));
+    });
+
+    socket.on("connect_error", () => {});
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
+
+  return (
+    <div className="h-screen w-screen flex flex-col bg-[#0f172a]">
+      <header className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-4 py-2 bg-gradient-to-b from-black/80 to-transparent">
+        <div>
+          <h1 className="text-sm font-bold text-accent">San Roque Tracking</h1>
+          <p className="text-xs text-gray-400">Ruta San Roque → Ceja</p>
+        </div>
+        <a href="/login" className="text-xs text-accent hover:underline">
+          Conductores
+        </a>
+      </header>
+
+      <main className="flex-1 relative">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-gray-400">Cargando mapa...</div>
+          </div>
+        ) : (
+          <>
+            <PublicMapView
+              vehicles={vehicles}
+              route={route}
+              onSelectVehicle={setSelectedVehicle}
+            />
+
+            <div className="absolute bottom-0 left-0 right-0 z-[1000] bg-[#1e293b] rounded-t-2xl max-h-48 overflow-y-auto border-t border-gray-700">
+              {selectedVehicle && (
+                <div className="p-4 border-b border-gray-700 bg-[#0f172a]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-sm">
+                        {selectedVehicle.plate}
+                      </p>
+                      <p className="text-xs text-gray-400 font-mono">
+                        {selectedVehicle.speed_kmh?.toFixed(1)} km/h
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedVehicle(null)}
+                      className="text-gray-500 text-xl"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Última actualización:{" "}
+                    {new Date(
+                      selectedVehicle.timestamp
+                    ).toLocaleTimeString("es-BO")}
+                  </p>
+                </div>
+              )}
+
+              <div className="p-3">
+                <p className="text-xs text-gray-400 mb-2">
+                  {vehicles.length > 0
+                    ? `🚐 ${vehicles.length} minibús(es) en ruta`
+                    : "⏳ No hay minibuses activos ahora"}
+                </p>
+                {vehicles.length > 0 && (
+                  <NextBusEstimate vehicles={vehicles} route={route} />
+                )}
+              </div>
+
+              {vehicles.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedVehicle(v)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#0f172a] transition border-b border-gray-800 last:border-0"
+                >
+                  <span className="text-lg">🚐</span>
+                  <div className="flex-1 text-left">
+                    <span className="text-sm font-medium">{v.plate}</span>
+                    <span className="text-xs text-gray-400 ml-2">
+                      {v.speed_kmh?.toFixed(0)} km/h
+                    </span>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      v.is_on_route
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-alert/20 text-alert"
+                    }`}
+                  >
+                    {v.is_on_route ? "En ruta" : "Desviado"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}

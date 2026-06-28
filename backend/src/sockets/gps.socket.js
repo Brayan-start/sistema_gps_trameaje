@@ -130,7 +130,9 @@ export function setupGpsSocket(io) {
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
-      return next(new Error("Token requerido"));
+      socket.user = { role: "public" };
+      console.log(`[SOCKET] Público conectado (socket: ${socket.id})`);
+      return next();
     }
     try {
       const decoded = jwt.verify(token, JWT_SECRET);

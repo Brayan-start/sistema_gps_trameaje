@@ -1,39 +1,49 @@
 import { useState, useEffect, useRef } from "react";
-function playBeep(ctx) {
-  if (!ctx) return;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.frequency.value = 880;
-  osc.type = "sine";
-  gain.gain.value = 0.15;
-  osc.start();
-  osc.stop(ctx.currentTime + 0.15);
-}
 export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, reporteGenerado = false }) {
   const [remaining, setRemaining] = useState(graceSeconds);
   const audioCtxRef = useRef(null);
+  const oscRef = useRef(null);
   const prevReporte = useRef(false);
   useEffect(() => {
     audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    return () => audioCtxRef.current?.close();
+    return () => {
+      if (oscRef.current) { try { oscRef.current.stop(); } catch (_) {} }
+      audioCtxRef.current?.close();
+    };
   }, []);
   useEffect(() => {
     if (!show) return;
     setRemaining(graceSeconds);
   }, [show, graceSeconds]);
   useEffect(() => {
-    if (!show) return;
-    if (remaining <= 0 || remaining > graceSeconds - 1) return;
-    playBeep(audioCtxRef.current);
-  }, [remaining, graceSeconds, show]);
-  useEffect(() => {
-    if (!show) return;
-    if (remaining > 0 || reporteGenerado) return;
-    const interval = setInterval(() => playBeep(audioCtxRef.current), 2000);
-    return () => clearInterval(interval);
-  }, [show, remaining, reporteGenerado]);
+    if (!show || reporteGenerado || remaining <= 0) {
+      if (oscRef.current) {
+        try { oscRef.current.stop(); } catch (_) {}
+        oscRef.current = null;
+      }
+      return;
+    }
+    if (!oscRef.current) {
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = "sine";
+      gain.gain.value = 0.1;
+      osc.start();
+      oscRef.current = osc;
+    }
+    return () => {
+      if (oscRef.current) {
+        try { oscRef.current.stop(); } catch (_) {}
+        oscRef.current = null;
+      }
+    };
+  }, [show, reporteGenerado, remaining]);
   useEffect(() => {
     if (!show || !reporteGenerado || prevReporte.current) {
       prevReporte.current = reporteGenerado;
@@ -88,13 +98,17 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, r
           </>
         ) : (
           <>
-            <div className="text-5xl mb-4 animate-pulse">🚨</div>
+            <div className="relative inline-block mb-4">
+              <div className="absolute inset-0 rounded-full border-4 border-alert/30 animate-ping" />
+              <div className="text-5xl animate-pulse">🚨</div>
+            </div>
             <h2 className="text-lg font-bold text-alert mb-2">¡FUERA DE RUTA!</h2>
             <p className="text-sm text-gray-400 mb-4">
               Usted está fuera de su ruta, por favor ingrese a su ruta
             </p>
             <div className="relative w-20 h-20 mx-auto mb-4">
-              <svg className="w-20 h-20 -rotate-90" viewBox="0 0 72 72">
+              <div className="absolute inset-0 rounded-full border-2 border-alert/30 animate-ping" />
+              <svg className="w-20 h-20 -rotate-90 relative z-10" viewBox="0 0 72 72">
                 <circle cx="36" cy="36" r="30" fill="none" stroke="#1e293b" strokeWidth="5" />
                 <circle
                   cx="36" cy="36" r="30"
@@ -106,7 +120,7 @@ export default function OffRouteWarning({ graceSeconds = 420, show, onDismiss, r
                   className="transition-all duration-1000"
                 />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center justify-center z-20">
                 <span className="font-mono text-xl font-bold text-white">{formatTime(remaining)}</span>
               </div>
             </div>
