@@ -79,7 +79,6 @@ router.put("/:id", requireAuth, requireRole("admin"), async (req, res) => {
       return res.status(400).json({ error: "Nada que actualizar" });
     }
 
-    sets.push(`updated_at = NOW()`);
     params.push(id);
 
     const result = await pool.query(
