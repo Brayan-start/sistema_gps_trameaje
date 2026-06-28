@@ -1,35 +1,41 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useAuthStore } from "../store/authStore";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
 
 let globalSocket = null;
+let globalListeners = [];
 
 export function useSocket(options = {}) {
   const { onPosition, onTramaje, onSpeedAlert, onOffRoute, onRouteStatus, onVehicleStatus, onIncident, onBackOnRoute, onReporteGenerado, onDashboardUpdate, onSancionAplicada } = options;
   const socketRef = useRef(globalSocket);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
     if (!globalSocket) {
+      console.log(`[SOCKET] Conectando a: ${SOCKET_URL || "(mismo origen)"}`);
       globalSocket = io(SOCKET_URL, {
         auth: { token },
         transports: ["websocket", "polling"],
       });
 
       globalSocket.on("connect", () => {
-        console.log("Socket conectado");
+        console.log(`[SOCKET] Conectado con id: ${globalSocket.id}`);
+        setConnected(true);
       });
 
-      globalSocket.on("disconnect", () => {
-        console.log("Socket desconectado");
+      globalSocket.on("disconnect", (reason) => {
+        console.log(`[SOCKET] Desconectado: ${reason}`);
+        setConnected(false);
       });
 
       globalSocket.on("connect_error", (err) => {
-        console.error("Error socket:", err.message);
+        console.error(`[SOCKET] Error de conexión a "${SOCKET_URL || "(mismo origen)"}": ${err.message}`);
+        setConnected(false);
       });
     }
 
@@ -68,7 +74,7 @@ export function useSocket(options = {}) {
     }
   };
 
-  return { socket: globalSocket, emit };
+  return { socket: globalSocket, emit, connected };
 }
 
 export function getSocket() {

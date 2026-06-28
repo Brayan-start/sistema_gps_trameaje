@@ -75,11 +75,13 @@ export function setupGpsSocket(io) {
       switch (decoded.role) {
         case "admin":
           socket.join("admins");
+          console.log(`[SOCKET] Admin conectado: ${decoded.name} (socket: ${socket.id})`);
           break;
         case "driver":
           socket.join(`user_${decoded.id}`);
           if (decoded.vehicle_id) {
             socket.join(`driver_${decoded.vehicle_id}`);
+            console.log(`[SOCKET] Driver conectado: ${decoded.name} vehículo:${decoded.vehicle_id} (socket: ${socket.id})`);
           }
           break;
       }
@@ -266,7 +268,7 @@ export function setupGpsSocket(io) {
     });
 
     socket.on("disconnect", () => {
-      console.log(`Socket desconectado: ${socket.user.name}`);
+      console.log(`[SOCKET] Desconectado: ${socket.user?.name || socket.id}`);
     });
   });
 }

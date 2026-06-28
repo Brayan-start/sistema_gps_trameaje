@@ -21,7 +21,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: CORS_ORIGIN
-        value: "*"
+        value: "https://san-roque-frontend.onrender.com"
       - key: PORT
         value: "10000"
     healthCheckPath: /health
@@ -33,9 +33,9 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: "" # Set this to your backend URL after deploy (e.g. https://san-roque-api.onrender.com/api)
+        value: "https://san-roque-api.onrender.com/api"
       - key: VITE_SOCKET_URL
-        value: "" # Set this to your backend URL after deploy (e.g. https://san-roque-api.onrender.com)
+        value: "https://san-roque-api.onrender.com"
     headers:
       - path: /*
         name: X-Frame-Options
